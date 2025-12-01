@@ -59,6 +59,9 @@ Pillow==10.1.0
 googletrans==4.0.0rc1
 deep-translator==1.11.4
 
+# GLM AI (智谱AI)
+zhipuai==2.1.5.20250825
+
 # 설정 파일 처리
 pyyaml==6.0.1
 toml==0.10.2
