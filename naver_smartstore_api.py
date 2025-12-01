@@ -23,6 +23,13 @@ from urllib.parse import urlencode
 import os
 from pathlib import Path
 
+# 안전한 설정 로더 임포트
+try:
+    from config_loader import SecureConfigLoader
+except ImportError:
+    SecureConfigLoader = None
+    print("⚠️  config_loader 모듈을 찾을 수 없습니다. 환경 변수를 직접 사용합니다.")
+
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
@@ -399,43 +406,79 @@ class NaverSmartStoreAPI:
 
 class NaverRegistrationManager:
     """네이버 등록 관리자"""
-    
-    def __init__(self, config_file: str = "naver_config.json"):
-        """설정 파일에서 API 정보 로드"""
-        self.config_file = config_file
+
+    def __init__(self, config_file: str = None):
+        """
+        설정 로드
+
+        Args:
+            config_file: (더 이상 사용하지 않음) 하위 호환성을 위해 유지
+        """
+        if config_file:
+            logger.warning(
+                "⚠️  config_file 파라미터는 더 이상 사용되지 않습니다. "
+                "환경 변수(.env)를 사용하세요."
+            )
+
         self.config = self._load_config()
         self.api = None
     
     def _load_config(self) -> Dict:
-        """설정 파일 로드"""
-        config_path = Path("C:/Users/PC8/Desktop/claude/아마존 크롤링") / self.config_file
-        
+        """
+        환경 변수에서 설정 로드
+
+        Returns:
+            설정 딕셔너리
+        """
         try:
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+            # SecureConfigLoader 사용
+            if SecureConfigLoader:
+                config_loader = SecureConfigLoader()
+
+                # 네이버 API 설정 가져오기
+                try:
+                    naver_config = config_loader.get_naver_config()
+
+                    return {
+                        "naver_client_id": naver_config['client_id'],
+                        "naver_client_secret": naver_config['client_secret'],
+                        "naver_customer_id": naver_config['customer_id'],
+                        "auto_register": config_loader.get('AUTO_REGISTER', 'false').lower() == 'true',
+                        "max_daily_registrations": int(config_loader.get('MAX_DAILY_REGISTRATIONS', '100')),
+                        "profit_margin_threshold": int(config_loader.get('PROFIT_MARGIN_THRESHOLD', '30'))
+                    }
+                except ValueError as e:
+                    logger.error(f"환경 변수 설정 오류: {e}")
+                    logger.error("💡 .env 파일을 확인하고 필수 환경 변수를 설정해주세요")
+                    raise
+
+            # 폴백: 환경 변수 직접 읽기
             else:
-                # 기본 설정 파일 생성
-                default_config = {
-                    "naver_client_id": "YOUR_CLIENT_ID",
-                    "naver_client_secret": "YOUR_CLIENT_SECRET", 
-                    "naver_customer_id": "YOUR_CUSTOMER_ID",
-                    "auto_register": False,
-                    "max_daily_registrations": 100,
-                    "profit_margin_threshold": 30
+                logger.warning("SecureConfigLoader를 사용할 수 없습니다. 환경 변수를 직접 읽습니다.")
+
+                client_id = os.getenv('NAVER_CLIENT_ID')
+                client_secret = os.getenv('NAVER_CLIENT_SECRET')
+                customer_id = os.getenv('NAVER_CUSTOMER_ID')
+
+                if not all([client_id, client_secret, customer_id]):
+                    raise ValueError(
+                        "필수 환경 변수가 설정되지 않았습니다: "
+                        "NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, NAVER_CUSTOMER_ID\n"
+                        ".env 파일을 생성하고 실제 값을 입력해주세요"
+                    )
+
+                return {
+                    "naver_client_id": client_id,
+                    "naver_client_secret": client_secret,
+                    "naver_customer_id": customer_id,
+                    "auto_register": os.getenv('AUTO_REGISTER', 'false').lower() == 'true',
+                    "max_daily_registrations": int(os.getenv('MAX_DAILY_REGISTRATIONS', '100')),
+                    "profit_margin_threshold": int(os.getenv('PROFIT_MARGIN_THRESHOLD', '30'))
                 }
-                
-                with open(config_path, 'w', encoding='utf-8') as f:
-                    json.dump(default_config, f, ensure_ascii=False, indent=2)
-                
-                logger.info(f"기본 설정 파일 생성됨: {config_path}")
-                logger.info("네이버 API 정보를 설정 파일에 입력해주세요.")
-                
-                return default_config
-                
+
         except Exception as e:
-            logger.error(f"설정 파일 로드 오류: {str(e)}")
-            return {}
+            logger.error(f"설정 로드 오류: {str(e)}")
+            raise
     
     async def initialize(self):
         """API 클라이언트 초기화"""
